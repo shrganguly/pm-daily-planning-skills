@@ -89,7 +89,7 @@ nano ~/.claude/skills/plan-my-day/config/vault-path.txt
 
 Add your Obsidian vault path (one line):
 ```
-C:\Users\YOUR_NAME\Documents\ObsidianVault\Microsoft Daily
+C:\Users\YOUR_NAME\Documents\ObsidianVault\VAULT_NAME
 ```
 
 Or wherever you want your daily plans to be stored.
