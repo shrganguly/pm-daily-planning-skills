@@ -2,9 +2,6 @@
 
 > A comprehensive task management system for Product Managers using Claude Code, integrating with Outlook and Obsidian.
 
-**Created by:** Shreya Ganguly (Microsoft PM)
-**Week 2 of Claude Code Learning Project**
-
 ---
 
 ## 🎯 What is This?
