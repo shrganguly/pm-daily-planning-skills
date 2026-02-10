@@ -1,0 +1,7 @@
+# Python dependencies for PM Daily Planning Skills
+
+# Windows Outlook integration (MAPI)
+pywin32>=305
+
+# Note: Claude Code itself is required but installed separately
+# Install Claude Code from: https://claude.com/claude-code
