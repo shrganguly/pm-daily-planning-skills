@@ -36,32 +36,21 @@ class OutlookMAPIFetcher:
             sys.exit(1)
 
     def fetch_today_events(self, accepted_only=True):
-        """Fetch today's calendar appointments
+        """Fetch today's calendar appointments INCLUDING recurring meetings and exceptions
 
         Args:
             accepted_only: If True, only return accepted meetings (default: True)
         """
         try:
+            import pythoncom
+
             # Get default calendar folder
             calendar = self.namespace.GetDefaultFolder(9)  # 9 = olFolderCalendar
 
-            # Get all items
-            items = calendar.Items
-
-            # IMPORTANT: Turn off recurring meeting expansion to avoid getting all instances
-            items.IncludeRecurrences = False
-
-            # Sort by start time
-            items.Sort("[Start]")
-
             # Set filter for today
             today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            today_end = today_start + timedelta(days=1)
 
             print(f"[*] Fetching events for {today_start.strftime('%Y-%m-%d')}...")
-
-            # Note: Outlook's Restrict filter is unreliable with recurring meetings
-            # So we'll iterate and manually filter by date in Python
 
             # Keywords to exclude from calendar (personal blocks, not real meetings)
             exclude_keywords = [
@@ -76,49 +65,136 @@ class OutlookMAPIFetcher:
                 'learning time'
             ]
 
-            # Parse events and manually filter by date
+            # NEW APPROACH: Get master appointments and handle exceptions
+            # This is the only reliable way to get modified recurring occurrences
+            items = calendar.Items
+            items.IncludeRecurrences = False  # Get MASTER appointments only
+            items.Sort("[Start]")
+
+            print(f"[*] Checking calendar for recurring patterns and exceptions...")
+
+            # Parse events
             events = []
             total_found = 0
             excluded_count = 0
+            exceptions_found = 0
+            occurrences_found = 0
 
             for item in items:
                 try:
-                    # First check if this event is actually today (manual date filter)
-                    event_start = item.Start
-                    if event_start.date() != today_start.date():
-                        continue  # Skip events not on today's date
+                    if item.IsRecurring:
+                        # This is a recurring master - check for today's occurrence
+                        rec_pattern = item.GetRecurrencePattern()
 
-                    total_found += 1
-                    event = self._parse_event(item)
-                    if event:
-                        # Check if subject contains excluded keywords
-                        subject_lower = event['subject'].lower()
-                        is_excluded = any(keyword in subject_lower for keyword in exclude_keywords)
+                        # Check if today is within the recurrence range
+                        pattern_start = rec_pattern.PatternStartDate.date()
+                        pattern_end = rec_pattern.PatternEndDate.date()
+                        today_date = today_start.date()
 
-                        if is_excluded:
-                            excluded_count += 1
-                            continue  # Skip this event
+                        if pattern_start <= today_date <= pattern_end:
+                            # FIRST: Check exceptions (modified occurrences)
+                            try:
+                                exceptions = rec_pattern.Exceptions
+                                for i in range(1, exceptions.Count + 1):  # COM collections are 1-indexed
+                                    try:
+                                        exception = exceptions.Item(i)
+                                        exception_date = exception.OriginalDate.date()
 
-                        # Filter based on response status if requested
-                        if accepted_only:
-                            # Include only:
-                            # - Accepted meetings (response_status == 3)
-                            # - Meetings you organized (response_status == 1)
-                            # Exclude:
-                            # - Tentative (response_status == 2)
-                            # - Declined (response_status == 4)
-                            # - Not responded (response_status == 0)
-                            if event['response_status'] in [1, 3]:  # Organizer or Accepted
-                                events.append(event)
-                        else:
-                            events.append(event)
+                                        if exception_date == today_date and not exception.Deleted:
+                                            exceptions_found += 1
+                                            modified_appt = exception.AppointmentItem
+
+                                            event = self._parse_event(modified_appt)
+                                            if event:
+                                                total_found += 1
+
+                                                # Check exclusions
+                                                subject_lower = event['subject'].lower()
+                                                is_excluded = any(kw in subject_lower for kw in exclude_keywords)
+
+                                                if is_excluded:
+                                                    excluded_count += 1
+                                                    continue
+
+                                                # Filter by response status
+                                                if accepted_only:
+                                                    if event['response_status'] in [1, 3]:  # Organizer or Accepted
+                                                        events.append(event)
+                                                else:
+                                                    events.append(event)
+                                    except:
+                                        continue
+                            except:
+                                pass
+
+                            # SECOND: Try to get regular occurrence (if no exception)
+                            # Check if we already have this meeting from exceptions
+                            already_added = any(e['subject'] == item.Subject and
+                                              e['start_datetime'][:10] == today_start.strftime('%Y-%m-%d')
+                                              for e in events)
+
+                            if not already_added:
+                                try:
+                                    # Try to get occurrence
+                                    start_time = rec_pattern.StartTime
+                                    occurrence_dt = datetime.combine(today_date, start_time.time())
+                                    occurrence = rec_pattern.GetOccurrence(occurrence_dt)
+
+                                    occurrences_found += 1
+
+                                    event = self._parse_event(occurrence)
+                                    if event:
+                                        total_found += 1
+
+                                        # Check exclusions
+                                        subject_lower = event['subject'].lower()
+                                        is_excluded = any(kw in subject_lower for kw in exclude_keywords)
+
+                                        if is_excluded:
+                                            excluded_count += 1
+                                            continue
+
+                                        # Filter by response status
+                                        if accepted_only:
+                                            if event['response_status'] in [1, 3]:
+                                                events.append(event)
+                                        else:
+                                            events.append(event)
+                                except pythoncom.com_error:
+                                    # No occurrence for today
+                                    pass
+                    else:
+                        # Non-recurring appointment
+                        event_start = item.Start
+                        if event_start.date() == today_start.date():
+                            event = self._parse_event(item)
+                            if event:
+                                total_found += 1
+
+                                # Check exclusions
+                                subject_lower = event['subject'].lower()
+                                is_excluded = any(kw in subject_lower for kw in exclude_keywords)
+
+                                if is_excluded:
+                                    excluded_count += 1
+                                    continue
+
+                                # Filter by response status
+                                if accepted_only:
+                                    if event['response_status'] in [1, 3]:
+                                        events.append(event)
+                                else:
+                                    events.append(event)
+
                 except Exception as e:
                     # Silently skip items that can't be processed
                     continue
 
             if accepted_only:
+                print(f"[OK] Found {exceptions_found} recurring exceptions, {occurrences_found} recurring occurrences")
                 print(f"[OK] Found {len(events)} accepted meetings (out of {total_found} total, {excluded_count} personal blocks filtered)")
             else:
+                print(f"[OK] Found {exceptions_found} recurring exceptions, {occurrences_found} recurring occurrences")
                 print(f"[OK] Found {len(events)} events ({excluded_count} personal blocks filtered)")
 
             return events
