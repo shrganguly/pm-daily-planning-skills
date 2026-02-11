@@ -291,6 +291,9 @@ class OutlookMAPIFetcher:
         if not events:
             return "No meetings scheduled for today"
 
+        # Sort events by start time first (chronological order)
+        events = sorted(events, key=lambda e: e['start_datetime'])
+
         # Separate into morning/afternoon/evening
         morning = []
         afternoon = []
