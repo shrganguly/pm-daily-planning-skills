@@ -239,15 +239,80 @@ This makes it easy to see all focus work together, and the "Carried over from" d
 
 ### Windows Task Scheduler (Auto End-of-Day Cleanup)
 
-To run cleanup automatically at 11:45 PM every day:
+To run cleanup automatically at 11:45 PM every day, you have two options:
 
-1. Open Task Scheduler
-2. Create Basic Task:
-   - **Name:** Claude Daily Plan Cleanup
+#### Option 1: Automated Setup (Recommended) ✨
+
+Run the included PowerShell setup script:
+
+```powershell
+# IMPORTANT: Run PowerShell as Administrator (required for creating scheduled tasks)
+# Right-click PowerShell → "Run as Administrator"
+
+cd $HOME\.claude\skills\plan-my-day\scripts
+.\setup_daily_cleanup.ps1
+```
+
+**What this does:**
+- Creates a scheduled task named `ClaudeCode-DailyPlanCleanup`
+- Runs daily at 11:45 PM
+- Automatically moves unchecked tasks to backlog
+- Marks daily plan as complete
+
+**Verify it's set up correctly:**
+```powershell
+# Check task exists and see next run time
+Get-ScheduledTask -TaskName "ClaudeCode-DailyPlanCleanup" | Get-ScheduledTaskInfo
+```
+
+Or using Command Prompt:
+```cmd
+schtasks /query /tn ClaudeCode-DailyPlanCleanup /fo LIST /v
+```
+
+**Common Issue - Access Denied:**
+
+If you see `Register-ScheduledTask : Access is denied`, you need to:
+1. Close PowerShell
+2. Right-click PowerShell → "Run as Administrator"
+3. Run the setup script again
+
+The task creation **requires Administrator privileges** on Windows.
+
+#### Option 2: Manual Setup
+
+If you prefer to set it up manually:
+
+1. Open Task Scheduler (search "Task Scheduler" in Start menu)
+2. Click "Create Basic Task"
+3. Configure:
+   - **Name:** ClaudeCode-DailyPlanCleanup
+   - **Description:** Automatically moves unchecked tasks to backlog at end of day
    - **Trigger:** Daily at 11:45 PM
    - **Action:** Start a program
-   - **Program:** `python`
-   - **Arguments:** `C:\Users\YOUR_NAME\.claude\skills\plan-my-day\scripts\end_of_day_cleanup.py --config`
+   - **Program:** `python` (or full path: `C:\Python39\python.exe`)
+   - **Arguments:** `"C:\Users\YOUR_NAME\.claude\skills\plan-my-day\scripts\end_of_day_cleanup.py" --config`
+   - **Start in:** `C:\Users\YOUR_NAME\.claude\skills\plan-my-day\scripts`
+4. Check "Open Properties dialog" before finishing
+5. In Properties:
+   - ✅ Enable "Run whether user is logged on or not"
+   - ✅ Enable "Run with highest privileges"
+   - ✅ Enable "Allow task to run on batteries"
+
+#### Testing the Cleanup Manually
+
+To test cleanup without waiting for 11:45 PM:
+
+```bash
+# In Claude Code
+/end-of-day-cleanup
+
+# Or run directly
+cd ~/.claude/skills/plan-my-day/scripts
+python end_of_day_cleanup.py --config
+```
+
+**Note:** The automatic cleanup currently only processes today's date. If you need to retroactively clean up a past date (e.g., if the task wasn't set up yet), use `/end-of-day-cleanup yesterday` in Claude Code.
 
 ### Customizing the Plan Template
 
