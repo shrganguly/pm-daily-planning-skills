@@ -98,11 +98,22 @@ class OutlookMAPIFetcher:
                                 for i in range(1, exceptions.Count + 1):  # COM collections are 1-indexed
                                     try:
                                         exception = exceptions.Item(i)
-                                        exception_date = exception.OriginalDate.date()
+                                        exception_original_date = exception.OriginalDate.date()
 
-                                        if exception_date == today_date and not exception.Deleted:
+                                        # Skip deleted exceptions
+                                        if exception.Deleted:
+                                            continue
+
+                                        # Get the modified appointment
+                                        modified_appt = exception.AppointmentItem
+
+                                        # Check the ACTUAL date of the modified appointment, not the original date
+                                        # This handles meetings that were moved to a different date
+                                        actual_date = modified_appt.Start.date()
+
+                                        # Only include if the ACTUAL date is today
+                                        if actual_date == today_date:
                                             exceptions_found += 1
-                                            modified_appt = exception.AppointmentItem
 
                                             event = self._parse_event(modified_appt)
                                             if event:

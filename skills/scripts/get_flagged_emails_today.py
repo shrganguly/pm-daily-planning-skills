@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Sub-agent: Get Flagged Emails Due Today
-Fetches emails flagged with due dates for today from Outlook Inbox.
+Fetches emails flagged with due dates for today from Outlook Inbox and Sent Items.
 
 This is called automatically by the /plan-my-day skill.
 """
@@ -32,25 +32,29 @@ class OutlookEmailFetcher:
             print(f"[ERROR] Failed to connect to Outlook: {e}")
             sys.exit(1)
 
-    def fetch_flagged_emails_today(self):
-        """Fetch emails flagged with due date of today
+    def fetch_flagged_emails_from_folder(self, folder_id, folder_name):
+        """Fetch emails flagged with due date of today from a specific folder
+
+        Args:
+            folder_id: Outlook folder constant (6=Inbox, 5=Sent Items)
+            folder_name: Human-readable folder name for logging
 
         Returns:
             list: List of email dictionaries with subject, sender, received time, etc.
         """
         try:
-            # Get Inbox folder (6 = olFolderInbox)
-            inbox = self.namespace.GetDefaultFolder(6)
-            messages = inbox.Items
+            # Get folder
+            folder = self.namespace.GetDefaultFolder(folder_id)
+            messages = folder.Items
 
-            # Sort by received time (most recent first)
-            messages.Sort("[ReceivedTime]", True)
+            # Sort by received/sent time (most recent first)
+            time_field = "[ReceivedTime]" if folder_id == 6 else "[SentOn]"
+            messages.Sort(time_field, True)
 
             # Get today's date range
             today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-            today_end = today_start + timedelta(days=1)
 
-            print(f"[*] Searching for flagged emails due today ({today_start.strftime('%Y-%m-%d')})...")
+            print(f"[*] Searching {folder_name} for flagged emails due today ({today_start.strftime('%Y-%m-%d')})...")
 
             flagged_emails = []
             checked_count = 0
@@ -89,15 +93,19 @@ class OutlookEmailFetcher:
 
                     # Check if due date is today
                     if due_date and due_date == today_start.date():
+                        # Get timestamp (received or sent depending on folder)
+                        timestamp = message.ReceivedTime if folder_id == 6 else message.SentOn
+
                         email_info = {
                             'subject': message.Subject or "No Subject",
                             'sender': message.SenderName or "Unknown",
                             'sender_email': message.SenderEmailAddress or "",
-                            'received': message.ReceivedTime.strftime("%Y-%m-%d %H:%M") if message.ReceivedTime else "",
+                            'received': timestamp.strftime("%Y-%m-%d %H:%M") if timestamp else "",
                             'due_date': due_date.strftime("%Y-%m-%d"),
                             'importance': message.Importance,  # 0=low, 1=normal, 2=high
                             'unread': message.UnRead,
-                            'size_kb': message.Size / 1024 if message.Size else 0
+                            'size_kb': message.Size / 1024 if message.Size else 0,
+                            'folder': folder_name  # Track which folder this came from
                         }
                         flagged_emails.append(email_info)
 
@@ -105,14 +113,34 @@ class OutlookEmailFetcher:
                     # Skip emails that can't be processed
                     continue
 
-            print(f"[OK] Checked {checked_count} recent emails")
+            print(f"[OK] Checked {checked_count} emails in {folder_name}")
             print(f"[OK] Found {len(flagged_emails)} flagged emails due today")
 
             return flagged_emails
 
         except Exception as e:
-            print(f"[ERROR] Error fetching emails: {e}")
+            print(f"[ERROR] Error fetching emails from {folder_name}: {e}")
             return []
+
+    def fetch_flagged_emails_today(self):
+        """Fetch emails flagged with due date of today from Inbox and Sent Items
+
+        Returns:
+            list: List of email dictionaries with subject, sender, received time, etc.
+        """
+        all_emails = []
+
+        # Fetch from Inbox (6 = olFolderInbox)
+        inbox_emails = self.fetch_flagged_emails_from_folder(6, "Inbox")
+        all_emails.extend(inbox_emails)
+
+        # Fetch from Sent Items (5 = olFolderSentMail)
+        sent_emails = self.fetch_flagged_emails_from_folder(5, "Sent Items")
+        all_emails.extend(sent_emails)
+
+        print(f"\n[OK] Total: {len(all_emails)} flagged emails due today ({len(inbox_emails)} inbox, {len(sent_emails)} sent)")
+
+        return all_emails
 
     def format_for_daily_plan(self, emails):
         """Format flagged emails for daily plan markdown"""
@@ -133,7 +161,8 @@ class OutlookEmailFetcher:
             lines.append("### High Priority")
             for email in high_priority:
                 unread_marker = "🔴 " if email['unread'] else ""
-                lines.append(f"- [ ] {unread_marker}**{email['sender']}**: {email['subject']}")
+                folder_marker = " 📤" if email.get('folder') == "Sent Items" else ""
+                lines.append(f"- [ ] {unread_marker}**{email['sender']}**: {email['subject']}{folder_marker}")
             lines.append("")
 
         # Format normal priority emails
@@ -142,7 +171,8 @@ class OutlookEmailFetcher:
                 lines.append("### Normal Priority")
             for email in normal_priority:
                 unread_marker = "🔴 " if email['unread'] else ""
-                lines.append(f"- [ ] {unread_marker}**{email['sender']}**: {email['subject']}")
+                folder_marker = " 📤" if email.get('folder') == "Sent Items" else ""
+                lines.append(f"- [ ] {unread_marker}**{email['sender']}**: {email['subject']}{folder_marker}")
             lines.append("")
 
         return "\n".join(lines)
