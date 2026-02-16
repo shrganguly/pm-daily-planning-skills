@@ -45,7 +45,10 @@ def get_carryover_tasks(vault_path):
         current_date = None
         current_category = None
 
-        for line in lines:
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+
             # Check for carryover section header
             if line.startswith('## 🔄 Backlog due from'):
                 in_carryover = True
@@ -88,8 +91,19 @@ def get_carryover_tasks(vault_path):
                 if current_category not in carryover_by_category:
                     carryover_by_category[current_category] = []
 
-                # Add task with date
-                carryover_by_category[current_category].append((task, current_date))
+                # Check next line for "Carried over from:" indicator
+                task_carryover_date = current_date  # Default to section date
+                if i + 1 < len(lines):
+                    next_line = lines[i + 1].strip()
+                    # Check if next line has carryover date
+                    match = re.match(r'-\s*\*Carried over from:\*\s*(\d{4}-\d{2}-\d{2})', next_line)
+                    if match:
+                        task_carryover_date = match.group(1)  # Use task's own date!
+
+                # Add task with its own carryover date (not section date)
+                carryover_by_category[current_category].append((task, task_carryover_date))
+
+            i += 1
 
         return carryover_by_category
 
